@@ -22,8 +22,6 @@ parser.add_argument('--epochs', type=int, default=10, metavar='N',
                     help='number of epochs to train (default: 10)')
 parser.add_argument('--temp', type=float, default=1.0, metavar='S',
                     help='tau(temperature) (default: 1.0)')
-parser.add_argument('--no-cuda', action='store_true', default=False,
-                    help='enables CUDA training')
 parser.add_argument('--seed', type=int, default=1, metavar='S',
                     help='random seed (default: 1)')
 parser.add_argument('--log-interval', type=int, default=10, metavar='N',
@@ -32,33 +30,33 @@ parser.add_argument('--hard', action='store_true', default=False,
                     help='hard Gumbel softmax')
 
 args = parser.parse_args()
-args.cuda = not args.no_cuda and torch.cuda.is_available()
+# args.cuda = not args.no_cuda and torch.cuda.is_available()
+device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+args.device = device
 
 torch.manual_seed(args.seed)
-if args.cuda:
-    torch.cuda.manual_seed(args.seed)
 
-kwargs = {'num_workers': 1, 'pin_memory': True} if args.cuda else {}
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(args.seed)
+    kwargs = {'num_workers': 1, 'pin_memory': True}
+else:
+    kwargs = {}
+
 train_loader = torch.utils.data.DataLoader(
     datasets.MNIST('./data', train=True, download=False,
                    transform=transforms.ToTensor()),
     batch_size=args.batch_size, shuffle=True, **kwargs)
 test_loader = torch.utils.data.DataLoader(
     datasets.MNIST('./data', train=False, transform=transforms.ToTensor()),
-    batch_size=args.batch_size, shuffle=True, **kwargs)
-
+    batch_size=args.batch_size, shuffle=False, **kwargs)
 
 def sample_gumbel(shape, eps=1e-20):
-    U = torch.rand(shape)
-    if args.cuda:
-        U = U.cuda()
+    U = torch.rand(shape).to(device)
     return -torch.log(-torch.log(U + eps) + eps)
-
 
 def gumbel_softmax_sample(logits, temperature):
     y = logits + sample_gumbel(logits.size())
     return F.softmax(y / temperature, dim=-1)
-
 
 def gumbel_softmax(logits, temperature, hard=False):
     """
@@ -67,7 +65,7 @@ def gumbel_softmax(logits, temperature, hard=False):
     return: flatten --> [*, n_class] an one-hot vector
     """
     y = gumbel_softmax_sample(logits, temperature)
-    
+
     if not hard:
         return y.view(-1, latent_dim * categorical_dim)
 
@@ -119,11 +117,8 @@ categorical_dim = 10  # one-of-K vector
 temp_min = 0.5
 ANNEAL_RATE = 0.00003
 
-model = VAE_gumbel(args.temp)
-if args.cuda:
-    model.cuda()
+model = VAE_gumbel(args.temp).to(device)
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-
 
 # Reconstruction + KL divergence losses summed over all elements and batch
 def loss_function(recon_x, x, qy):
@@ -140,8 +135,7 @@ def train(epoch):
     train_loss = 0
     temp = args.temp
     for batch_idx, (data, _) in enumerate(train_loader):
-        if args.cuda:
-            data = data.cuda()
+        data = data.to(device)
         optimizer.zero_grad()
         recon_batch, qy = model(data, temp, args.hard)
         loss = loss_function(recon_batch, data, qy)
@@ -166,8 +160,7 @@ def test(epoch):
     test_loss = 0
     temp = args.temp
     for i, (data, _) in enumerate(test_loader):
-        if args.cuda:
-            data = data.cuda()
+        data = data.to(device)
         recon_batch, qy = model(data, temp, args.hard)
         test_loss += loss_function(recon_batch, data, qy).item() * len(data)
         if i % 100 == 1:
@@ -192,9 +185,7 @@ def run():
         np_y = np.zeros((M, categorical_dim), dtype=np.float32)
         np_y[range(M), np.random.choice(categorical_dim, M)] = 1
         np_y = np.reshape(np_y, [M // latent_dim, latent_dim, categorical_dim])
-        sample = torch.from_numpy(np_y).view(M // latent_dim, latent_dim * categorical_dim)
-        if args.cuda:
-            sample = sample.cuda()
+        sample = torch.from_numpy(np_y).view(M // latent_dim, latent_dim * categorical_dim).to(device)
         sample = model.decode(sample).cpu()
         save_image(sample.data.view(M // latent_dim, 1, 28, 28),
                    'data/sample_' + str(epoch) + '.png')
