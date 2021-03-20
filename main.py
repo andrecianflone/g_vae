@@ -79,6 +79,8 @@ def gumbel_softmax(logits, temperature, hard=False):
     return y_hard.view(-1, latent_dim * categorical_dim)
 
 
+
+
 class VAE_gumbel(nn.Module):
     def __init__(self, temp):
         super(VAE_gumbel, self).__init__()
@@ -170,7 +172,7 @@ def test(epoch):
             comparison = torch.cat([data[:n],
                                     recon_batch.view(args.batch_size, 1, 28, 28)[:n]])
             save_image(comparison.data.cpu(),
-                       'data/reconstruction_' + str(epoch) + '.png', nrow=n)
+                       'results/reconstruction_' + str(epoch) + '.png', nrow=n)
 
     test_loss /= len(test_loader.dataset)
     print('====> Test set loss: {:.4f}'.format(test_loss))
@@ -188,7 +190,7 @@ def run():
         sample = torch.from_numpy(np_y).view(M // latent_dim, latent_dim * categorical_dim).to(device)
         sample = model.decode(sample).cpu()
         save_image(sample.data.view(M // latent_dim, 1, 28, 28),
-                   'data/sample_' + str(epoch) + '.png')
+                   'results/sample_' + str(epoch) + '.png')
 
 
 if __name__ == '__main__':
